@@ -10,7 +10,27 @@ This guide explains how to build the UHFF (Universal Harmonic Field Framework) V
 - **Fullscreen Mode**: Optimized for mobile display
 - **Multi-orientation Support**: Works in both landscape and portrait modes
 
-## Prerequisites
+## Google Colab Build Troubleshooting
+
+If you encounter "❌ Buildozer: Not found or error" in Google Colab:
+
+### Quick Fixes:
+
+1. **Restart Runtime**: Runtime > Restart runtime (not just session), then rerun script from beginning
+2. **Manual Buildozer Install** (if auto-install fails):
+   ```python
+   !pip uninstall -y buildozer
+   !pip install buildozer cython virtualenv pexpect --no-cache-dir
+   !source ~/.bashrc && export PATH=$PATH:~/.local/bin
+   ```
+
+### Alternative: Use WSL Build Method
+
+WSL has more reliable Android building. Switch to the WSL method below if Colab fails.
+
+---
+
+## Prerequisites (WSL Method)
 
 1. **Windows with WSL2 installed**
 2. **Ubuntu or similar Linux distribution in WSL**

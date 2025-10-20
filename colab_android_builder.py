@@ -1,19 +1,103 @@
-# UHFF Visualization - Android APK Builder for Google Colab
-# This notebook builds your UHFF app into an Android APK using Google Colab
+#!/usr/bin/env python3
+"""
+UHFF Visualization - Android APK Builder for Google Colab
+
+IMPORTANT: This script is designed to be run cell-by-cell in Google Colab,
+NOT as a standalone Python script on your local machine.
+
+To use this:
+1. Open a new Google Colab notebook
+2. Copy and paste each section into separate cells
+3. Run cells in order
+
+For Windows/WSL build, use the setup_wsl_android.sh and build_android.sh scripts instead.
+
+This Python file serves as documentation for the Colab build process.
+"""
+
+def main():
+    print("❌ This script cannot be run directly on Windows.")
+    print("Please use one of these methods:")
+    print("")
+    print("1. GOOGLE COLAB METHOD:")
+    print("   - Open https://colab.research.google.com")
+    print("   - Upload UHFF_Android_Builder.ipynb")
+    print("   - Run the cells in order")
+    print("")
+    print("2. WSL METHOD (Windows):")
+    print("   - Run setup_wsl_android.sh in WSL")
+    print("   - Run build_android.sh to create APK")
+    print("")
+    print("3. MANUAL COLAB SETUP:")
+    print("   - Copy each section below into separate Colab cells")
+    print("   - Execute them in sequence")
+
+    print("\n" + "="*60)
+    print("COLAB BUILD STEPS (for manual copy-paste):")
+    print("="*60)
+
+    colab_steps = [
+        # Step 1 header
+        ["# 🚀 STEP 1: Setup Environment",
+         "print('Setting up Android build environment...')",
+         "!apt-get update -qq",
+         "!apt-get install -y -qq openjdk-17-jdk wget unzip git"],
+
+        # Step 2 header
+        ["# 📦 STEP 2: Install Python Dependencies",
+         "!pip install --upgrade pip",
+         "!pip install buildozer cython wheel setuptools",
+         '!pip install --no-cache-dir buildozer'],
+
+        # And so on...
+    ]
+
+    step_num = 1
+    for step in colab_steps[:2]:  # Show only first few steps as example
+        print(f"\n--- STEP {step_num} ---")
+        for line in step:
+            print(f"    {line}")
+        step_num += 1
+
+    print("    ... (remaining steps in the colab_android_builder.py file)")
+    print("\nSee README_Android.md for detailed instructions.")
+
+if __name__ == "__main__":
+    main()
+    exit(0)
 
 # =============================================================================
-# STEP 1: Setup Environment
+# COLAB BUILD PROCESS BELOW - COPY TO COLAB CELLS
 # =============================================================================
 
-print("🚀 Setting up Android build environment in Google Colab...")
-print("This process will take about 10-15 minutes for the first run.")
+"""
+The sections below are the actual Colab commands.
+To use them, copy each section into a separate Colab cell and run in order.
 
-# Update system and install dependencies
-!apt-get update -qq
-!apt-get install -y -qq openjdk-17-jdk wget unzip git
+SECTION 1: Setup Environment
+"""
+# print("🚀 Setting up Android build environment in Google Colab...")
+# !apt-get update -qq
+# !apt-get install -y -qq openjdk-17-jdk wget unzip git
 
 # Install Python dependencies
-!pip install buildozer cython
+print("📦 Installing buildozer and dependencies...")
+!pip install --upgrade pip
+!pip install buildozer cython wheel setuptools
+!pip install --no-cache-dir buildozer
+
+# Verify buildozer installation
+import sys
+import os
+from pathlib import Path
+
+# Add pip user bin to PATH if not already there
+pip_user_bin = Path.home() / ".local" / "bin"
+if pip_user_bin.exists():
+    os.environ['PATH'] = f"{pip_user_bin}:{os.environ['PATH']}"
+
+# Also add /opt for system installs
+os.environ['PATH'] = f"/opt/bin:{os.environ['PATH']}"
 
 print("✅ Basic dependencies installed")
 
@@ -230,14 +314,36 @@ def create_default_files():
 def build_apk():
     """Build the Android APK"""
     os.chdir(project_dir)
-    
+
     print("🏗️ Starting APK build process...")
     print("This will take 15-30 minutes for the first build as it downloads dependencies.")
-    
-    # Initialize buildozer (downloads Android NDK, etc.)
-    !buildozer android debug
-    
-    print("✅ APK build completed!")
+
+    # First check if buildozer is available
+    if not shutil.which('buildozer'):
+        print("❌ Buildozer not found. Please rerun the setup section.")
+        return
+
+    # Try the build process multiple times if needed
+    import subprocess
+    try:
+        print("Running: buildozer android debug")
+        result = subprocess.run(['buildozer', 'android', 'debug'],
+                              capture_output=True, text=True, timeout=1800)  # 30 min timeout
+
+        if result.returncode == 0:
+            print("✅ APK build completed!")
+        else:
+            print(f"❌ Build failed with return code {result.returncode}")
+            print("STDOUT:", result.stdout[-1000:])  # Last 1000 chars
+            print("STDERR:", result.stderr[-1000:])  # Last 1000 chars
+            return
+
+    except subprocess.TimeoutExpired:
+        print("❌ Build timed out after 30 minutes")
+        return
+    except Exception as e:
+        print(f"❌ Build error: {e}")
+        return
     
     # List generated files
     bin_dir = Path("bin")
@@ -301,8 +407,62 @@ def clean_build():
     !buildozer android clean
     print("✅ Build cache cleaned")
 
+# Check and verify buildozer is working
+def verify_buildozer():
+    """Verify that buildozer is properly installed and executable"""
+    print("🔍 Verifying buildozer installation...")
+    buildozer_path = shutil.which('buildozer')
+    if not buildozer_path:
+        # Try alternative locations
+        possible_paths = [
+            '/usr/local/bin/buildozer',
+            '/usr/bin/buildozer',
+            str(Path.home() / '.local' / 'bin' / 'buildozer'),
+            str(Path('.local') / 'bin' / 'buildozer')  # relative to current
+        ]
+        for path in possible_paths:
+            if Path(path).exists() and os.access(path, os.X_OK):
+                print(f"✓ Found buildozer at {path}")
+                # Add to PATH if not there
+                bin_dir = str(Path(path).parent)
+                if bin_dir not in os.environ['PATH']:
+                    os.environ['PATH'] = f"{bin_dir}:{os.environ['PATH']}"
+                return True
+        print("❌ Buildozer not found in PATH or expected locations")
+
+        # Manual installation if needed
+        print("📦 Attempting manual buildozer installation...")
+        !pip uninstall -y buildozer
+        !pip install --no-deps buildozer
+        !pip install virtualenv pexpect
+
+        # Try to use it directly after install
+        if shutil.which('buildozer') or (Path.home() / '.local' / 'bin' / 'buildozer').exists():
+            print("✅ Buildozer manual installation successful")
+            return True
+        else:
+            print("❌ Buildozer manual installation failed")
+            return False
+    else:
+        print(f"✅ Buildozer found at {buildozer_path}")
+        # Test if it's working
+        try:
+            result = os.system('buildozer --help >/dev/null 2>&1')
+            if result == 0:
+                print("✅ Buildozer command is working")
+                return True
+            else:
+                print("❌ Buildozer command failed")
+                return False
+        except:
+            print("❌ Buildozer execution error")
+            return False
+
+# Run verification
+buildozer_ok = verify_buildozer()
+
 # Show current status
 print(f"\n📊 Current status:")
 print(f"  - Android SDK: {'✅ Installed' if (android_home / 'platform-tools').exists() else '❌ Missing'}")
 print(f"  - Project directory: {'✅ Ready' if project_dir.exists() else '❌ Missing'}")
-print(f"  - Buildozer: {'✅ Installed' if shutil.which('buildozer') else '❌ Missing'}")
+print(f"  - Buildozer: {'✅ Installed and working' if buildozer_ok else '❌ Missing or broken'}")
