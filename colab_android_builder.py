@@ -47,35 +47,63 @@ if __name__ == "__main__":
 The sections below are the actual Colab commands.
 To use them, copy each section into a separate Colab cell and run in order.
 
-SECTION 1: Setup Environment
+SECTION 1: Setup Environment - Copy this entire section to the first Colab cell
 """
-# print("🚀 Setting up Android build environment in Google Colab...")
-# !apt-get update -qq
-# !apt-get install -y -qq openjdk-17-jdk wget unzip git
+print("🚀 Setting up Android build environment in Google Colab...")
 
-# Install Python dependencies
+# Install system dependencies - CRITICAL: These must be uncommented!
+!apt-get update -qq
+!apt-get install -y -qq openjdk-17-jdk wget unzip git build-essential
+
+# Install additional build dependencies for Android development
+!apt-get install -y -qq autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5
+!apt-get install -y -qq cmake ninja-build ccache
+!apt-get install -y -qq python3-pip python3-setuptools python3-wheel python3-dev
+
+# Install Python dependencies with specific versions that work well together
 print("📦 Installing buildozer and dependencies...")
-!pip install --upgrade pip
-!pip install buildozer cython wheel setuptools
-!pip install --no-cache-dir buildozer
+!pip install --upgrade pip setuptools wheel
+!pip install cython==0.29.36
+!pip install buildozer==1.5.0
+!pip install virtualenv pexpect sh colorama appdirs jinja2
 
 # Verify buildozer installation
 import sys
 import os
 from pathlib import Path
+import shutil
 
-# Add pip user bin to PATH if not already there
+# Set up PATH properly
 pip_user_bin = Path.home() / ".local" / "bin"
 if pip_user_bin.exists():
     os.environ['PATH'] = f"{pip_user_bin}:{os.environ['PATH']}"
 
-# Also add /opt for system installs
-os.environ['PATH'] = f"/opt/bin:{os.environ['PATH']}"
+# Add system bin directories
+for bin_dir in ["/usr/local/bin", "/usr/bin", "/bin"]:
+    if bin_dir not in os.environ['PATH']:
+        os.environ['PATH'] = f"{bin_dir}:{os.environ['PATH']}"
 
-print("✅ Basic dependencies installed")
+# Verify buildozer is accessible
+buildozer_path = shutil.which('buildozer')
+if buildozer_path:
+    print(f"✅ Buildozer found at: {buildozer_path}")
+    # Test buildozer
+    try:
+        import subprocess
+        result = subprocess.run(['buildozer', '--version'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            print(f"✅ Buildozer version: {result.stdout.strip()}")
+        else:
+            print(f"⚠️ Buildozer test failed: {result.stderr}")
+    except Exception as e:
+        print(f"⚠️ Buildozer test error: {e}")
+else:
+    print("❌ Buildozer not found in PATH")
+
+print("✅ System dependencies installed")
 
 # =============================================================================
-# STEP 2: Download and Setup Android SDK
+# STEP 2: Download and Setup Android SDK - Copy this section to the second Colab cell
 # =============================================================================
 
 import os
@@ -86,8 +114,10 @@ from pathlib import Path
 android_home = Path.home() / "android-sdk"
 android_home.mkdir(exist_ok=True)
 
-# Download Android command line tools
-cmdtools_url = "https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip"
+print("📥 Setting up Android SDK...")
+
+# Download Android command line tools (updated to latest version)
+cmdtools_url = "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
 cmdtools_zip = "commandlinetools.zip"
 
 if not (android_home / "cmdline-tools" / "latest").exists():
@@ -106,9 +136,12 @@ if not (android_home / "cmdline-tools" / "latest").exists():
     )
     os.remove(cmdtools_zip)
     print("✅ Android SDK command line tools installed")
+else:
+    print("✅ Android SDK command line tools already installed")
 
 # Set environment variables
 os.environ['ANDROID_HOME'] = str(android_home)
+os.environ['ANDROID_SDK_ROOT'] = str(android_home)  # Alternative name for some tools
 os.environ['PATH'] = f"{android_home}/cmdline-tools/latest/bin:{android_home}/platform-tools:{os.environ['PATH']}"
 
 # Fix permissions on SDK tools (common issue after extraction)
@@ -118,335 +151,411 @@ print("🔧 Fixing Android SDK permissions...")
 # Accept licenses and install SDK components
 if not (android_home / "platform-tools").exists():
     print("📦 Installing Android SDK components...")
+    print("⏳ This may take a few minutes...")
+    
+    # Accept all licenses non-interactively
     !yes | {android_home}/cmdline-tools/latest/bin/sdkmanager --licenses
+    
+    # Install required SDK components
     !{android_home}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+    
+    # Install NDK (required for buildozer)
+    !{android_home}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653"
+    
     print("✅ Android SDK components installed")
-    print("✅ Android SDK ready!")
+else:
+    print("✅ Android SDK components already installed")
+
+# Verify installation
+if (android_home / "platform-tools").exists():
+    print("✅ Android SDK setup complete!")
+    print(f"📍 SDK Location: {android_home}")
+    print(f"📍 Platform Tools: {android_home}/platform-tools")
+else:
+    print("❌ Android SDK setup failed!")
+
+# Show what we have
+print("\n📋 Installed SDK components:")
+!{android_home}/cmdline-tools/latest/bin/sdkmanager --list_installed | head -20
 
 # =============================================================================
-# STEP 3: Upload Project Files
+# STEP 3: Upload Project Files - Copy this section to the third Colab cell
 # =============================================================================
 
-print("\n📁 Please upload your project files...")
-print("You can either:")
-print("1. Upload files manually using the Colab file browser")
-print("2. Clone from GitHub")
-print("3. Upload a ZIP file")
+print("📁 Setting up project files...")
 
-# Option 1: Manual file upload
+# Option 1: Clone directly from your GitHub repository (RECOMMENDED)
+print("🔽 Cloning project from GitHub...")
+!git clone https://github.com/3rdeyesamurai/ether.git uhff-project
+
+# Option 2: Manual upload (alternative method)
+# Uncomment the lines below if you prefer to upload files manually:
+"""
 from google.colab import files
 import zipfile
 import shutil
 
 def upload_project_files():
-    """Upload project files to Colab"""
-    print("Choose an option:")
-    print("1. Upload ZIP file of your project")
-    print("2. Clone from GitHub repository")
+    print("📤 Upload your project as a ZIP file:")
+    uploaded = files.upload()
     
-    choice = input("Enter choice (1 or 2): ")
-    
-    if choice == "1":
-        print("Please upload your project as a ZIP file:")
-        uploaded = files.upload()
-        
-        # Extract the uploaded ZIP
-        for filename in uploaded.keys():
-            if filename.endswith('.zip'):
-                with zipfile.ZipFile(filename, 'r') as zip_ref:
-                    zip_ref.extractall('uhff-project')
-                os.remove(filename)
-                print(f"✅ Extracted {filename}")
-                break
-    
-    elif choice == "2":
-        repo_url = input("Enter GitHub repository URL (https://github.com/...): ")
-        !git clone {repo_url} uhff-project
-        print("✅ Repository cloned")
-    
-    else:
-        print("❌ Invalid choice")
-        return False
-    
+    # Extract the uploaded ZIP
+    for filename in uploaded.keys():
+        if filename.endswith('.zip'):
+            with zipfile.ZipFile(filename, 'r') as zip_ref:
+                zip_ref.extractall('uhff-project')
+            os.remove(filename)
+            print(f"✅ Extracted {filename}")
+            break
     return True
 
-# For direct use (if you want to clone your repo)
-# Uncomment and modify the line below:
-# !git clone https://github.com/3rdeyesamurai/ether.git uhff-project
-
-# Or upload files manually
+# Uncomment to use manual upload:
 # upload_project_files()
+"""
 
-print("\n📋 If uploading manually, please ensure these files are in 'uhff-project' directory:")
-print("- main.py")
-print("- uhff_visualization.py") 
-print("- buildozer.spec")
-print("- Any other Python files")
-
-# =============================================================================
-# STEP 4: Create Project Structure (if files uploaded manually)
-# =============================================================================
-
-# Create project directory if it doesn't exist
+# Verify project files
 project_dir = Path("uhff-project")
-project_dir.mkdir(exist_ok=True)
-
-# If you uploaded files manually to the root, move them to project directory
-def organize_files():
-    """Move uploaded files to proper project structure"""
-    files_to_move = ['main.py', 'uhff_visualization.py', 'buildozer.spec']
-    for file in files_to_move:
-        if Path(file).exists() and not (project_dir / file).exists():
-            shutil.move(file, project_dir / file)
-            print(f"✅ Moved {file} to project directory")
+if project_dir.exists():
+    print(f"✅ Project directory created: {project_dir}")
+    print("📋 Project files:")
+    for item in project_dir.iterdir():
+        if item.is_file():
+            size_kb = item.stat().st_size / 1024
+            print(f"  - {item.name} ({size_kb:.1f} KB)")
+else:
+    print("❌ Project directory not found!")
+    print("Please check if the clone/upload was successful.")
 
 # =============================================================================
-# STEP 5: Create/Update Project Files for Colab
+# STEP 4: Configure Project for Android Build - Copy this section to the fourth Colab cell
 # =============================================================================
 
-# Create the main files if they don't exist (in case of manual setup)
-main_py_content = '''
-# Your main.py content would go here
-# This is a placeholder - upload your actual main.py file
-import pygame
-import numpy as np
-
-def main():
-    print("UHFF Visualization - Android Build")
-    print("Please upload your actual main.py file")
-
-if __name__ == "__main__":
-    main()
-'''
-
-uhff_py_content = '''#!/usr/bin/env python3
-"""
-UHFF Visualization Entry Point for Android
-"""
 import os
-import sys
+import shutil
+from pathlib import Path
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+project_dir = Path("uhff-project")
 
-try:
-    from main import main
-    
-    if __name__ == "__main__":
-        print("Starting UHFF Visualization for Android...")
-        main()
-        
-except ImportError as e:
-    print(f"Error importing main module: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Error starting application: {e}")
-    sys.exit(1)
-'''
+print("🔧 Configuring project for Android build...")
 
+# Create optimized buildozer.spec for Colab environment
 buildozer_spec_content = '''[app]
 title = UHFF Visualization App
 package.name = uhffvis
 package.domain = com.uhff
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
+source.include_patterns = presets/*.json
 version = 1.0
-requirements = python3,pygame,numpy
+
+# Use specific working versions of requirements
+requirements = python3,pygame,numpy,setuptools,six
+
+# Entry point
+source.main = main.py
 orientation = landscape,portrait
 
 [buildozer]
 log_level = 2
 
-# Android specific
+# Android specific - optimized for Colab
 fullscreen = 1
 android.api = 33
 android.minapi = 21
-android.ndk = 25b
+android.ndk = 25.2.9519653
 android.ndk_api = 21
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 android.accept_sdk_license = True
+
+# Use SDL2 bootstrap for pygame
+p4a.bootstrap = sdl2
+
+# Force clean builds to avoid cache issues in Colab
+android.gradle_dependencies = 
+
+# Optimize for Colab environment
+android.gradle_repositories = 
+android.enable_androidx = False
+
+# Python for Android specific
+p4a.branch = develop
 p4a.bootstrap = sdl2
 '''
 
-# Write default files if they don't exist
-def create_default_files():
-    """Create default project files if they don't exist"""
-    files_to_create = {
-        'main.py': main_py_content,
-        'uhff_visualization.py': uhff_py_content,
-        'buildozer.spec': buildozer_spec_content
-    }
-    
-    for filename, content in files_to_create.items():
-        filepath = project_dir / filename
-        if not filepath.exists():
-            with open(filepath, 'w') as f:
-                f.write(content)
-            print(f"✅ Created default {filename}")
+# Write the optimized buildozer.spec
+spec_path = project_dir / "buildozer.spec"
+with open(spec_path, 'w') as f:
+    f.write(buildozer_spec_content)
+print(f"✅ Created optimized buildozer.spec")
+
+# Verify project structure
+if project_dir.exists():
+    print(f"\n📁 Project structure:")
+    for item in sorted(project_dir.iterdir()):
+        if item.is_file():
+            size_kb = item.stat().st_size / 1024
+            print(f"  📄 {item.name} ({size_kb:.1f} KB)")
+        elif item.is_dir():
+            file_count = len(list(item.glob("*")))
+            print(f"  📁 {item.name}/ ({file_count} files)")
+
+# Check if we have the essential files
+essential_files = ['main.py', 'uhff_visualization.py', 'buildozer.spec']
+missing_files = []
+for file in essential_files:
+    if not (project_dir / file).exists():
+        missing_files.append(file)
+
+if missing_files:
+    print(f"\n⚠️ Missing files: {missing_files}")
+    print("The build may fail without these files.")
+else:
+    print(f"\n✅ All essential files present!")
+    print("Ready for Android build!")
+
+print(f"\n📍 Project directory: {project_dir.absolute()}")
 
 # =============================================================================
-# STEP 6: Build APK
+# STEP 5: Build APK - Copy this section to the fifth Colab cell
 # =============================================================================
+
+import os
+import subprocess
+import shutil
+from pathlib import Path
 
 def build_apk():
-    """Build the Android APK"""
+    """Build the Android APK with enhanced error handling"""
+    project_dir = Path("uhff-project")
+    
+    if not project_dir.exists():
+        print("❌ Project directory not found!")
+        return False
+    
+    # Change to project directory
     os.chdir(project_dir)
-
-    # Install missing build tools for libffi compatibility
-    print("🛠️ Installing build tools for compatibility...")
-    !apt-get install -qq libtool-bin automake pkg-config
-    # Try newer autoconf to avoid libffi build errors
-    !pip install --upgrade autoconf || true  # Continue even if upgrade fails
-
-    print("🏗️ Starting APK build process...")
-    print("This will take 15-30 minutes for the first build as it downloads dependencies.")
-
-    # First check if buildozer is available
-    if not shutil.which('buildozer'):
-        print("❌ Buildozer not found. Please rerun the setup section.")
-        return
-
-    # Try the build process multiple times if needed
-    import subprocess
+    print(f"� Working in: {project_dir.absolute()}")
+    
+    # Install additional build tools if needed
+    print("🛠️ Ensuring build dependencies are available...")
+    !apt-get install -qq libtool-bin automake pkg-config libffi-dev
+    
+    # Clean any previous builds
+    print("🧹 Cleaning previous builds...")
+    if Path(".buildozer").exists():
+        shutil.rmtree(".buildozer")
+        print("✅ Cleaned .buildozer directory")
+    
+    if Path("bin").exists():
+        shutil.rmtree("bin")
+        print("✅ Cleaned bin directory")
+    
+    # Verify buildozer is working
     try:
-        print("Running: buildozer android debug")
-        result = subprocess.run(['buildozer', 'android', 'debug'],
-                              capture_output=True, text=True, timeout=1800)  # 30 min timeout
-
-        if result.returncode == 0:
-            print("✅ APK build completed!")
+        result = subprocess.run(['buildozer', '--version'], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            print("❌ Buildozer not working properly!")
+            return False
+        print(f"✅ Buildozer version: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"❌ Buildozer check failed: {e}")
+        return False
+    
+    # Start the build process
+    print("\n🏗️ Starting APK build process...")
+    print("⏳ This will take 15-30 minutes for the first build...")
+    print("📊 Progress will be shown below:")
+    
+    try:
+        # Use subprocess with real-time output
+        process = subprocess.Popen(
+            ['buildozer', 'android', 'debug', '-v'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        # Print output in real-time
+        for line in process.stdout:
+            print(line, end='')
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            print("\n✅ APK build completed successfully!")
+            
+            # List generated files
+            bin_dir = Path("bin")
+            if bin_dir.exists():
+                apk_files = list(bin_dir.glob("*.apk"))
+                if apk_files:
+                    print(f"\n📱 Generated APK files:")
+                    for apk in apk_files:
+                        size_mb = apk.stat().st_size / 1024 / 1024
+                        print(f"  - {apk.name} ({size_mb:.1f} MB)")
+                    return True
+                else:
+                    print("❌ No APK files found in bin directory")
+                    return False
+            else:
+                print("❌ Bin directory not found")
+                return False
         else:
-            print(f"❌ Build failed with return code {result.returncode}")
-            print("STDOUT:", result.stdout[-1000:])  # Last 1000 chars
-            print("STDERR:", result.stderr[-1000:])  # Last 1000 chars
-            return
-
+            print(f"\n❌ Build failed with return code {process.returncode}")
+            print("Check the output above for error details.")
+            return False
+            
     except subprocess.TimeoutExpired:
-        print("❌ Build timed out after 30 minutes")
-        return
+        print("❌ Build timed out after 45 minutes")
+        return False
     except Exception as e:
         print(f"❌ Build error: {e}")
-        return
-    
-    # List generated files
-    bin_dir = Path("bin")
-    if bin_dir.exists():
-        apk_files = list(bin_dir.glob("*.apk"))
-        if apk_files:
-            print(f"\n📱 Generated APK files:")
-            for apk in apk_files:
-                print(f"  - {apk.name} ({apk.stat().st_size / 1024 / 1024:.1f} MB)")
-        else:
-            print("❌ No APK files found in bin directory")
-    else:
-        print("❌ Bin directory not found")
+        return False
+
+# Run the build
+success = build_apk()
+if success:
+    print("\n🎉 BUILD SUCCESSFUL!")
+    print("Your APK is ready for download in the next step.")
+else:
+    print("\n💥 BUILD FAILED!")
+    print("Please check the error messages above and try again.")
+
+# =============================================================================
+# STEP 6: Download APK - Copy this section to the sixth Colab cell
+# =============================================================================
+
+from google.colab import files
+from pathlib import Path
 
 def download_apk():
     """Download the built APK file"""
-    bin_dir = Path(project_dir / "bin")
-    if bin_dir.exists():
-        apk_files = list(bin_dir.glob("*.apk"))
-        if apk_files:
-            print("📥 Downloading APK file...")
-            for apk_file in apk_files:
-                files.download(str(apk_file))
-                print(f"✅ Downloaded {apk_file.name}")
-        else:
-            print("❌ No APK files found to download")
-    else:
-        print("❌ No build output found")
+    project_dir = Path("uhff-project")
+    bin_dir = project_dir / "bin"
+    
+    if not bin_dir.exists():
+        print("❌ No build output found!")
+        print("Make sure the build completed successfully.")
+        return
+    
+    apk_files = list(bin_dir.glob("*.apk"))
+    if not apk_files:
+        print("❌ No APK files found to download!")
+        return
+    
+    print("📥 Downloading APK files...")
+    for apk_file in apk_files:
+        size_mb = apk_file.stat().st_size / 1024 / 1024
+        print(f"📱 Downloading {apk_file.name} ({size_mb:.1f} MB)...")
+        files.download(str(apk_file))
+        print(f"✅ Downloaded {apk_file.name}")
+    
+    print("\n🎉 Download complete!")
+    print("You can now install the APK on your Android device.")
+
+# Download the APK
+download_apk()
 
 # =============================================================================
-# STEP 7: Main Execution
+# STEP 7: Utility Functions - Copy this section to the seventh Colab cell
 # =============================================================================
 
-print("\n" + "="*60)
-print("🎯 READY TO BUILD!")
-print("="*60)
-print("\nNext steps:")
-print("1. Upload your project files (main.py, buildozer.spec, etc.)")
-print("2. Run the build process")
-print("3. Download the generated APK")
-print("\nTo start building, run:")
-print("build_apk()")
-print("\nTo download the APK after building:")
-print("download_apk()")
+import os
+import shutil
+from pathlib import Path
 
-# Utility functions for user
+# Define project directory
+project_dir = Path("uhff-project")
+
 def show_project_files():
     """Show uploaded project files"""
     if project_dir.exists():
         print(f"📁 Files in {project_dir}:")
+        total_size = 0
         for item in project_dir.iterdir():
             if item.is_file():
                 size_mb = item.stat().st_size / 1024 / 1024
-                print(f"  - {item.name} ({size_mb:.2f} MB)")
+                total_size += size_mb
+                print(f"  📄 {item.name} ({size_mb:.2f} MB)")
+            elif item.is_dir() and item.name != '.git':
+                file_count = len(list(item.glob("*")))
+                print(f"  📁 {item.name}/ ({file_count} files)")
+        print(f"\n📊 Total project size: {total_size:.2f} MB")
     else:
         print("❌ Project directory not found")
 
 def clean_build():
     """Clean previous build artifacts"""
+    if not project_dir.exists():
+        print("❌ Project directory not found")
+        return
+    
     os.chdir(project_dir)
-    !buildozer android clean
-    print("✅ Build cache cleaned")
+    
+    # Clean buildozer cache
+    if Path(".buildozer").exists():
+        shutil.rmtree(".buildozer")
+        print("✅ Cleaned .buildozer directory")
+    
+    # Clean bin directory
+    if Path("bin").exists():
+        shutil.rmtree("bin")
+        print("✅ Cleaned bin directory")
+    
+    print("✅ Build cache cleaned - ready for fresh build")
 
-# Check and verify buildozer is working
-def verify_buildozer():
-    """Verify that buildozer is properly installed and executable"""
-    print("🔍 Verifying buildozer installation...")
+def check_build_status():
+    """Check the status of the build environment"""
+    print("📊 Build Environment Status:")
+    
+    # Check Android SDK
+    android_home = Path.home() / "android-sdk"
+    sdk_status = "✅ Installed" if (android_home / "platform-tools").exists() else "❌ Missing"
+    print(f"  - Android SDK: {sdk_status}")
+    
+    # Check project
+    project_status = "✅ Ready" if project_dir.exists() else "❌ Missing"
+    print(f"  - Project directory: {project_status}")
+    
+    # Check buildozer
     buildozer_path = shutil.which('buildozer')
-    if not buildozer_path:
-        # Try alternative locations
-        possible_paths = [
-            '/usr/local/bin/buildozer',
-            '/usr/bin/buildozer',
-            str(Path.home() / '.local' / 'bin' / 'buildozer'),
-            str(Path('.local') / 'bin' / 'buildozer')  # relative to current
-        ]
-        for path in possible_paths:
-            if Path(path).exists() and os.access(path, os.X_OK):
-                print(f"✓ Found buildozer at {path}")
-                # Add to PATH if not there
-                bin_dir = str(Path(path).parent)
-                if bin_dir not in os.environ['PATH']:
-                    os.environ['PATH'] = f"{bin_dir}:{os.environ['PATH']}"
-                return True
-        print("❌ Buildozer not found in PATH or expected locations")
-
-        # Manual installation if needed
-        print("📦 Attempting manual buildozer installation...")
-        !pip uninstall -y buildozer
-        !pip install --no-deps buildozer
-        !pip install virtualenv pexpect
-
-        # Try to use it directly after install
-        if shutil.which('buildozer') or (Path.home() / '.local' / 'bin' / 'buildozer').exists():
-            print("✅ Buildozer manual installation successful")
-            return True
+    buildozer_status = "✅ Available" if buildozer_path else "❌ Missing"
+    print(f"  - Buildozer: {buildozer_status}")
+    
+    # Check essential files
+    if project_dir.exists():
+        essential_files = ['main.py', 'buildozer.spec']
+        missing = [f for f in essential_files if not (project_dir / f).exists()]
+        if missing:
+            print(f"  - Essential files: ❌ Missing {missing}")
         else:
-            print("❌ Buildozer manual installation failed")
-            return False
-    else:
-        print(f"✅ Buildozer found at {buildozer_path}")
-        # Test if it's working
-        try:
-            result = os.system('buildozer --help >/dev/null 2>&1')
-            if result == 0:
-                print("✅ Buildozer command is working")
-                return True
-            else:
-                print("❌ Buildozer command failed")
-                return False
-        except:
-            print("❌ Buildozer execution error")
-            return False
+            print(f"  - Essential files: ✅ All present")
+    
+    # Overall status
+    all_good = (
+        (android_home / "platform-tools").exists() and
+        project_dir.exists() and
+        buildozer_path and
+        (project_dir / "main.py").exists() and
+        (project_dir / "buildozer.spec").exists()
+    )
+    
+    print(f"\n🎯 Overall Status: {'✅ Ready to build!' if all_good else '❌ Setup incomplete'}")
+    
+    return all_good
 
-# Run verification
-buildozer_ok = verify_buildozer()
+# Run status check
+print("🔍 Checking build environment...")
+check_build_status()
 
-# Show current status
-print(f"\n📊 Current status:")
-print(f"  - Android SDK: {'✅ Installed' if (android_home / 'platform-tools').exists() else '❌ Missing'}")
-print(f"  - Project directory: {'✅ Ready' if project_dir.exists() else '❌ Missing'}")
-print(f"  - Buildozer: {'✅ Installed and working' if buildozer_ok else '❌ Missing or broken'}")
+print("\n� Available utility functions:")
+print("  - show_project_files(): List all project files")
+print("  - clean_build(): Clean build cache")
+print("  - check_build_status(): Check environment status")
+
+print("\n💡 Quick Start Guide:")
+print("1. Run each cell in order (1-6)")
+print("2. Wait for Step 5 (build) to complete (~20-30 minutes)")
+print("3. Download your APK in Step 6")
+print("4. Install on Android device and enjoy!")

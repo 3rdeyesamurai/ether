@@ -343,6 +343,15 @@ def set_scene_param(index: int, key, value):
     except Exception:
         pass
 
+def get_preset_list(presets_dir, current_scene):
+    """Safely get the list of presets for the current scene."""
+    if presets_dir is None or not os.path.exists(presets_dir):
+        return []
+    try:
+        return sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
+    except Exception:
+        return []
+
 # Touch and Android compatibility functions
 def get_button_layout():
     """Define touch-friendly button layout for mobile interface."""
@@ -414,7 +423,7 @@ def is_mobile_device():
         # Check for Android-specific environment variables and properties
         android_indicators = [
             platform.system() == "Linux" and "ANDROID_ROOT" in os.environ,
-            hasattr(_pygame, 'FINGERDOWN'),
+            _pygame is not None and hasattr(_pygame, 'FINGERDOWN'),
             os.path.exists('/system/build.prop'),  # Android system file
             'android' in platform.platform().lower()
         ]
@@ -433,8 +442,30 @@ def main():
     auto_rotate = True
     zoom = 1.0
     # Preset browser & help overlay state
-    presets_dir = os.path.join(os.path.dirname(__file__), "presets")
-    os.makedirs(presets_dir, exist_ok=True)
+    try:
+        # Try to use app-specific data directory if available (Android)
+        if is_mobile_device():
+            # On Android, try to use the app's internal files directory
+            try:
+                from android.storage import app_storage_path
+                presets_dir = os.path.join(app_storage_path(), "presets")
+            except ImportError:
+                # Fallback to user home if android module not available
+                presets_dir = os.path.join(os.path.expanduser("~"), "presets")
+        else:
+            presets_dir = os.path.join(os.path.expanduser("~"), "presets")
+        
+        os.makedirs(presets_dir, exist_ok=True)
+    except Exception as e:
+        # If preset directory creation fails, use a temporary directory
+        import tempfile
+        presets_dir = os.path.join(tempfile.gettempdir(), "uhff_presets")
+        try:
+            os.makedirs(presets_dir, exist_ok=True)
+        except Exception:
+            # If everything fails, just disable presets functionality
+            presets_dir = None
+    
     preset_browser = False
     preset_list = []
     preset_index = 0
@@ -451,15 +482,19 @@ def main():
     tag_mode = False
     tag_str = ""
     # load or initialize preset index metadata
-    index_file = os.path.join(presets_dir, "index.json")
-    try:
-        if os.path.exists(index_file):
-            with open(index_file, "r") as f:
-                presets_index = json.load(f)
-        else:
+    presets_index = {}
+    if presets_dir is not None:
+        index_file = os.path.join(presets_dir, "index.json")
+        try:
+            if os.path.exists(index_file):
+                with open(index_file, "r") as f:
+                    presets_index = json.load(f)
+            else:
+                presets_index = {}
+        except Exception:
             presets_index = {}
-    except Exception:
-        presets_index = {}
+    else:
+        index_file = None
 
     while running:
         for event in _pygame.event.get():
@@ -520,8 +555,8 @@ def main():
                     elif touch_action == 'load':
                         # Load the most recent preset for this scene
                         try:
-                            preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
-                            if preset_list:
+                            preset_list = get_preset_list(presets_dir, current_scene)
+                            if preset_list and presets_dir is not None:
                                 sel = preset_list[-1]
                                 with open(os.path.join(presets_dir, sel), "r") as f:
                                     data = json.load(f)
@@ -535,7 +570,7 @@ def main():
                     elif touch_action == 'presets':
                         preset_browser = not preset_browser
                         if preset_browser:
-                            preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
+                            preset_list = get_preset_list(presets_dir, current_scene)
                             preset_index = 0
                     elif touch_action == 'help':
                         help_overlay = not help_overlay
@@ -646,32 +681,33 @@ def main():
                     # toggle preset browser
                     preset_browser = not preset_browser
                     if preset_browser:
-                        preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
+                        preset_list = get_preset_list(presets_dir, current_scene)
                         preset_index = 0
                 elif event.key == _pygame.K_RETURN or event.key == _pygame.K_KP_ENTER:
                     # if entering text modes, finalize input
                     if save_name_mode:
                         # commit save with provided name (fallback to timestamp)
-                        try:
-                            name = save_name_str.strip() or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-                            fname = f"scene_{current_scene}_{name}.json"
-                            fpath = os.path.join(presets_dir, fname)
-                            with open(fpath, "w") as f:
-                                serial = {k: (v.tolist() if hasattr(v, 'tolist') else v) for k, v in scenes[current_scene]["params"].items()}
-                                json.dump(serial, f, indent=2)
-                            # update index
-                            presets_index[fname] = {"scene": current_scene, "name": name, "tags": []}
-                            with open(index_file, "w") as f:
-                                json.dump(presets_index, f, indent=2)
-                            preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
-                            preset_index = max(0, len(preset_list) - 1)
-                        except Exception as e:
-                            print("Failed to save preset:", e)
+                        if presets_dir is not None and index_file is not None:
+                            try:
+                                name = save_name_str.strip() or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                                fname = f"scene_{current_scene}_{name}.json"
+                                fpath = os.path.join(presets_dir, fname)
+                                with open(fpath, "w") as f:
+                                    serial = {k: (v.tolist() if hasattr(v, 'tolist') else v) for k, v in scenes[current_scene]["params"].items()}
+                                    json.dump(serial, f, indent=2)
+                                # update index
+                                presets_index[fname] = {"scene": current_scene, "name": name, "tags": []}
+                                with open(index_file, "w") as f:
+                                    json.dump(presets_index, f, indent=2)
+                                preset_list = get_preset_list(presets_dir, current_scene)
+                                preset_index = max(0, len(preset_list) - 1)
+                            except Exception as e:
+                                print("Failed to save preset:", e)
                         save_name_mode = False
                     elif rename_mode and preset_browser and preset_list:
                         sel = preset_list[preset_index]
                         newname = rename_str.strip()
-                        if newname:
+                        if newname and presets_dir is not None and index_file is not None:
                             try:
                                 newfile = f"scene_{current_scene}_{newname}.json"
                                 os.rename(os.path.join(presets_dir, sel), os.path.join(presets_dir, newfile))
@@ -681,7 +717,7 @@ def main():
                                     presets_index[newfile]["name"] = newname
                                     with open(index_file, "w") as f:
                                         json.dump(presets_index, f, indent=2)
-                                preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
+                                preset_list = get_preset_list(presets_dir, current_scene)
                                 preset_index = 0
                             except Exception as e:
                                 print("Failed to rename preset:", e)
@@ -689,19 +725,20 @@ def main():
                     elif tag_mode and preset_browser and preset_list:
                         sel = preset_list[preset_index]
                         tags = [t.strip() for t in tag_str.split(",") if t.strip()]
-                        try:
-                            if sel not in presets_index:
-                                presets_index[sel] = {"scene": current_scene, "name": sel, "tags": tags}
-                            else:
-                                presets_index[sel]["tags"] = tags
-                            with open(index_file, "w") as f:
-                                json.dump(presets_index, f, indent=2)
-                        except Exception as e:
-                            print("Failed to tag preset:", e)
+                        if index_file is not None:
+                            try:
+                                if sel not in presets_index:
+                                    presets_index[sel] = {"scene": current_scene, "name": sel, "tags": tags}
+                                else:
+                                    presets_index[sel]["tags"] = tags
+                                with open(index_file, "w") as f:
+                                    json.dump(presets_index, f, indent=2)
+                            except Exception as e:
+                                print("Failed to tag preset:", e)
                         tag_mode = False
                     else:
                         # if preset browser open, load selected
-                        if preset_browser and preset_list:
+                        if preset_browser and preset_list and presets_dir is not None:
                             sel = preset_list[preset_index]
                             try:
                                 with open(os.path.join(presets_dir, sel), "r") as f:
@@ -715,11 +752,11 @@ def main():
                                 print("Failed to load preset:", e)
                 elif event.key == _pygame.K_d:
                     # delete selected preset when browser open
-                    if preset_browser and preset_list:
+                    if preset_browser and preset_list and presets_dir is not None:
                         sel = preset_list.pop(preset_index)
                         try:
                             os.remove(os.path.join(presets_dir, sel))
-                            if sel in presets_index:
+                            if sel in presets_index and index_file is not None:
                                 presets_index.pop(sel, None)
                                 with open(index_file, "w") as f:
                                     json.dump(presets_index, f, indent=2)
@@ -729,8 +766,8 @@ def main():
                 elif event.key == _pygame.K_l:
                     # load the most recent preset for this scene if exists
                     try:
-                        preset_list = sorted([p for p in os.listdir(presets_dir) if p.startswith(f"scene_{current_scene}_")])
-                        if preset_list:
+                        preset_list = get_preset_list(presets_dir, current_scene)
+                        if preset_list and presets_dir is not None:
                             sel = preset_list[-1]
                             with open(os.path.join(presets_dir, sel), "r") as f:
                                 data = json.load(f)
@@ -832,12 +869,18 @@ def main():
             overlay_surf.fill((20, 20, 20))
             screen.blit(overlay_surf, (WIDTH - overlay_w - 10, 50))
             # list presets
-            for i, fname in enumerate(preset_list[:10]):
-                color = GREEN if i == preset_index else WHITE
-                txt = font.render(fname, True, color)
-                screen.blit(txt, (WIDTH - overlay_w, 60 + i * 18))
-            hint = font.render("Enter=Load  D=Delete  S=Save  P=Close", True, BLUE)
-            screen.blit(hint, (WIDTH - overlay_w, 60 + 11 * 18))
+            if preset_list:
+                for i, fname in enumerate(preset_list[:10]):
+                    color = GREEN if i == preset_index else WHITE
+                    txt = font.render(fname, True, color)
+                    screen.blit(txt, (WIDTH - overlay_w, 60 + i * 18))
+                hint = font.render("Enter=Load  D=Delete  S=Save  P=Close", True, BLUE)
+                screen.blit(hint, (WIDTH - overlay_w, 60 + 11 * 18))
+            else:
+                no_presets = font.render("No presets available", True, WHITE)
+                screen.blit(no_presets, (WIDTH - overlay_w, 80))
+                hint = font.render("S=Save  P=Close", True, BLUE)
+                screen.blit(hint, (WIDTH - overlay_w, 100))
 
         # Help overlay
         if help_overlay:
@@ -856,7 +899,7 @@ def main():
                 screen.blit(txt, (hx, hy + i * 18))
 
         # Draw touch buttons for mobile interface
-        if is_mobile_device() or True:  # Always show for now, can be mobile-only later
+        if is_mobile_device():
             buttons = get_button_layout()
             current_states = {
                 'auto_rotate': auto_rotate,
@@ -873,10 +916,22 @@ def main():
 
 
 if __name__ == "__main__":
-    # Avoid running main when imported by test runners like pytest
+    # Avoid running main when imported by test runners or during packaging
     try:
         import sys
-        if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
+        # Check if we're in a test environment or being imported for packaging
+        if ("pytest" not in sys.modules and 
+            "PYTEST_CURRENT_TEST" not in os.environ and
+            _pygame is not None):
             main()
-    except Exception:
-        main()
+        elif _pygame is None:
+            print("pygame is not available - skipping main()")
+    except Exception as e:
+        # Only run main if pygame is available
+        if _pygame is not None:
+            try:
+                main()
+            except Exception as main_error:
+                print(f"Error running main: {main_error}")
+        else:
+            print(f"Cannot run main - pygame not available: {e}")
