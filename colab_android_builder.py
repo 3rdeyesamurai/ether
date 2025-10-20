@@ -2,69 +2,42 @@
 """
 UHFF Visualization - Android APK Builder for Google Colab
 
-IMPORTANT: This script is designed to be run cell-by-cell in Google Colab,
-NOT as a standalone Python script on your local machine.
+🚨 DO NOT RUN THIS FILE DIRECTLY! 🚨
 
-To use this:
-1. Open a new Google Colab notebook
-2. Copy and paste each section into separate cells
-3. Run cells in order
+This file contains instructions and code snippets for building Android APKs in Google Colab.
+It is NOT a standalone Python script and will crash if run directly.
 
-For Windows/WSL build, use the setup_wsl_android.sh and build_android.sh scripts instead.
+INSTRUCTIONS:
+1. Open a new Google Colab notebook at: https://colab.research.google.com
+2. Copy and paste each section between the === markers into separate Colab cells
+3. Run the cells in order
 
-This Python file serves as documentation for the Colab build process.
+For Windows/WSL users: Use build_android.sh and setup_wsl_android.sh scripts instead.
+
+This Python file serves only as documentation and reference.
 """
 
-def main():
-    print("❌ This script cannot be run directly on Windows.")
-    print("Please use one of these methods:")
+def show_warning():
+    print("🚨 WARNING: DO NOT RUN THIS FILE DIRECTLY!")
     print("")
-    print("1. GOOGLE COLAB METHOD:")
+    print("This file contains code snippets and instructions for Google Colab.")
+    print("Running it directly will cause a kernel crash.")
+    print("")
+    print("Please follow these steps instead:")
+    print("")
+    print("1. WSL BUILD (Recommended for Windows users):")
+    print("   - Run setup_wsl_android.sh")
+    print("   - Run build_android.sh")
+    print("")
+    print("2. COLAB BUILD:")
     print("   - Open https://colab.research.google.com")
-    print("   - Upload UHFF_Android_Builder.ipynb")
-    print("   - Run the cells in order")
+    print("   - Copy sections from this file into separate notebook cells")
     print("")
-    print("2. WSL METHOD (Windows):")
-    print("   - Run setup_wsl_android.sh in WSL")
-    print("   - Run build_android.sh to create APK")
-    print("")
-    print("3. MANUAL COLAB SETUP:")
-    print("   - Copy each section below into separate Colab cells")
-    print("   - Execute them in sequence")
-
-    print("\n" + "="*60)
-    print("COLAB BUILD STEPS (for manual copy-paste):")
-    print("="*60)
-
-    colab_steps = [
-        # Step 1 header
-        ["# 🚀 STEP 1: Setup Environment",
-         "print('Setting up Android build environment...')",
-         "!apt-get update -qq",
-         "!apt-get install -y -qq openjdk-17-jdk wget unzip git"],
-
-        # Step 2 header
-        ["# 📦 STEP 2: Install Python Dependencies",
-         "!pip install --upgrade pip",
-         "!pip install buildozer cython wheel setuptools",
-         '!pip install --no-cache-dir buildozer'],
-
-        # And so on...
-    ]
-
-    step_num = 1
-    for step in colab_steps[:2]:  # Show only first few steps as example
-        print(f"\n--- STEP {step_num} ---")
-        for line in step:
-            print(f"    {line}")
-        step_num += 1
-
-    print("    ... (remaining steps in the colab_android_builder.py file)")
-    print("\nSee README_Android.md for detailed instructions.")
+    print("See README_Android.md for detailed instructions.")
 
 if __name__ == "__main__":
-    main()
-    exit(0)
+    show_warning()
+    exit(1)
 
 # =============================================================================
 # COLAB BUILD PROCESS BELOW - COPY TO COLAB CELLS
@@ -138,12 +111,17 @@ if not (android_home / "cmdline-tools" / "latest").exists():
 os.environ['ANDROID_HOME'] = str(android_home)
 os.environ['PATH'] = f"{android_home}/cmdline-tools/latest/bin:{android_home}/platform-tools:{os.environ['PATH']}"
 
+# Fix permissions on SDK tools (common issue after extraction)
+print("🔧 Fixing Android SDK permissions...")
+!chmod +x {android_home}/cmdline-tools/latest/bin/* || true
+
 # Accept licenses and install SDK components
 if not (android_home / "platform-tools").exists():
     print("📦 Installing Android SDK components...")
     !yes | {android_home}/cmdline-tools/latest/bin/sdkmanager --licenses
     !{android_home}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
     print("✅ Android SDK components installed")
+    print("✅ Android SDK ready!")
 
 # =============================================================================
 # STEP 3: Upload Project Files
@@ -314,6 +292,12 @@ def create_default_files():
 def build_apk():
     """Build the Android APK"""
     os.chdir(project_dir)
+
+    # Install missing build tools for libffi compatibility
+    print("🛠️ Installing build tools for compatibility...")
+    !apt-get install -qq libtool-bin automake pkg-config
+    # Try newer autoconf to avoid libffi build errors
+    !pip install --upgrade autoconf || true  # Continue even if upgrade fails
 
     print("🏗️ Starting APK build process...")
     print("This will take 15-30 minutes for the first build as it downloads dependencies.")
