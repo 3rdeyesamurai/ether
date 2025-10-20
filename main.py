@@ -122,17 +122,28 @@ def project(points, eye_z=-5, screen_dist=4, zoom=1.0):
 
     zoom > 1.0 makes objects appear smaller (zoomed out); zoom < 1.0 zooms in.
     """
-    projected = []
-    for point in points:
-        try:
-            x, y, z = point
-        except Exception:
-            continue
-        factor = screen_dist / (eye_z - z) if (eye_z - z) != 0 else 1
-        px = WIDTH / 2 + x * factor * 100 / zoom
-        py = HEIGHT / 2 - y * factor * 100 / zoom
-        projected.append((int(px), int(py)))
-    return projected
+    if len(points) == 0:
+        return []
+    arr = np.asarray(points)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        # Fallback to old method for non-standard shapes
+        projected = []
+        for point in points:
+            try:
+                x, y, z = point
+            except Exception:
+                continue
+            factor = screen_dist / (eye_z - z) if (eye_z - z) != 0 else 1
+            px = WIDTH / 2 + x * factor * 100 / zoom
+            py = HEIGHT / 2 - y * factor * 100 / zoom
+            projected.append((int(px), int(py)))
+        return projected
+    # Vectorized version for Nx3 arrays
+    x, y, z = arr.T
+    factor = np.where(eye_z - z != 0, screen_dist / (eye_z - z), 1)
+    px = WIDTH / 2 + x * factor * 100 / zoom
+    py = HEIGHT / 2 - y * factor * 100 / zoom
+    return np.stack((px, py), axis=-1).astype(int).tolist()
 
 # Concept Functions (return 3D points or data; params adjustable)
 def gen_torus_knot(p=2, q=3, R=1, r=0.4, num_points=1000):
@@ -854,7 +865,8 @@ def main():
             draw_touch_buttons(screen, font, buttons, current_states)
 
         _pygame.display.flip()
-        clock.tick(60)
+        fps_target = 30 if is_mobile_device() else 60
+        clock.tick(fps_target)
 
     if _pygame is not None:
         _pygame.quit()
